@@ -1,0 +1,23 @@
+# Changelog
+
+All notable changes to Quick Capture will be documented here.
+
+The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project uses [Semantic Versioning](https://semver.org/).
+
+## [0.1.0] - 2026-08-24
+
+### Added
+
+- Native Omarchy panel lifecycle and shell IPC summon path.
+- Focused multiline capture editor on the active monitor.
+- Always-on-top, mouse-draggable capture card with click-through space outside it.
+- Per-monitor restoration of the card's last dragged position.
+- Safe serialized Markdown append with write and flush confirmation.
+- Configurable destination, tags, timestamps, context, template, panel geometry, and notifications.
+- Theme-aware styling and retryable data-preserving errors.
+- Automated safety, formatting, validation, and release checks.
+- Local-only privacy model and complete installation, usage, and uninstall documentation.
+
+### Design
+
+- Compact layout with minimal header and footer areas, a subtle drag grip, and no close button.

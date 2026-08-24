@@ -1,0 +1,93 @@
+#!/bin/bash
+set -euo pipefail
+
+umask 077
+
+capture_file=${1:-}
+if [[ -z $capture_file ]]; then
+  printf 'Capture path is invalid.\n' >&2
+  exit 2
+fi
+
+case $capture_file in
+  /*) ;;
+  *)
+    printf 'Capture path is invalid: use an absolute path.\n' >&2
+    exit 2
+    ;;
+esac
+
+if [[ -d $capture_file ]]; then
+  printf 'Could not save note: destination is not a regular file.\n' >&2
+  exit 3
+fi
+if [[ -e $capture_file && ! -f $capture_file ]]; then
+  printf 'Could not save note: destination is not a regular file.\n' >&2
+  exit 3
+fi
+
+parent=${capture_file%/*}
+if ! mkdir -p -- "$parent" 2>/dev/null; then
+  printf 'Could not create the capture directory.\n' >&2
+  exit 4
+fi
+
+payload=$(mktemp --tmpdir="$parent" .quick-capture-payload.XXXXXX) || {
+  printf 'Could not prepare the note for saving.\n' >&2
+  exit 5
+}
+cleanup() { rm -f -- "$payload"; }
+trap cleanup EXIT HUP INT TERM
+
+if ! cat >"$payload"; then
+  printf 'Could not read the note content.\n' >&2
+  exit 6
+fi
+
+# Normalize only trailing line endings. Interior whitespace and Unicode remain
+# byte-for-byte intact, while every stored entry ends with exactly one newline.
+while [[ -s $payload ]]; do
+  last_byte=$(tail -c 1 -- "$payload" | od -An -tx1 | tr -d '[:space:]')
+  [[ $last_byte == 0a ]] || break
+  truncate -s -1 -- "$payload"
+done
+
+if [[ ! -s $payload ]]; then
+  printf 'Could not save note: capture is empty.\n' >&2
+  exit 7
+fi
+
+if ! { exec 3>>"$capture_file"; } 2>/dev/null; then
+  printf 'Could not create or open the capture file.\n' >&2
+  exit 8
+fi
+if ! flock -x 3; then
+  printf 'Could not lock the capture file.\n' >&2
+  exit 9
+fi
+
+if [[ -s $capture_file ]]; then
+  last_byte=$(tail -c 1 -- "$capture_file" | od -An -tx1 | tr -d '[:space:]')
+  if [[ $last_byte != 0a ]]; then
+    printf '\n' >&3 || {
+      printf 'Could not save note: disk write failed.\n' >&2
+      exit 10
+    }
+  fi
+  printf '\n' >&3 || {
+    printf 'Could not save note: disk write failed.\n' >&2
+    exit 10
+  }
+fi
+
+if ! cat -- "$payload" >&3 || ! printf '\n' >&3; then
+  printf 'Could not save note: disk write failed.\n' >&2
+  exit 10
+fi
+
+# Confirm the kernel has flushed this file before reporting success. This keeps
+# the panel open if the filesystem reports a late write error.
+if ! sync -f -- "$capture_file"; then
+  printf 'Could not save note: disk flush failed.\n' >&2
+  exit 11
+fi

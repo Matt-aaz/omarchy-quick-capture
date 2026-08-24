@@ -1,0 +1,13 @@
+{
+  "capture_file": "~/Documents/Notes/Capture.md",
+  "default_tags": ["capture"],
+  "include_timestamp": true,
+  "timestamp_format": "%Y-%m-%d %H:%M",
+  "include_app": true,
+  "include_window_title": true,
+  "panel_width": 700,
+  "panel_height": 230,
+  "panel_position": "center",
+  "notify_on_save": false,
+  "template": "## {{timestamp}}\n{{tags}}\n\n{{content}}\n\n{{source}}"
+}

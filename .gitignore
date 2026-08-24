@@ -1,0 +1,13 @@
+# Editors and operating systems
+.DS_Store
+*~
+*.swp
+
+# Test output
+coverage/
+
+# Local-only release identity overrides
+.env
+
+# Local-only development notes
+revision_run.md
