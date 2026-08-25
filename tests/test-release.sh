@@ -6,6 +6,8 @@ cd "$ROOT"
 
 bash tests/test-append-capture.sh
 node tests/test-capture-logic.mjs
+node tests/test-qml-security.mjs
+python3 -c 'import ast, pathlib; ast.parse(pathlib.Path("bin/append-capture").read_text())'
 omarchy plugin validate .
 
 jq -e '.schemaVersion == 1 and .id == "io.github.matt-aaz.quick-capture" and .version == "0.1.0" and .author == "matt-aaz" and .license == "MIT" and (.kinds | index("panel")) and .entryPoints.panel == "QuickCapture.qml"' manifest.json >/dev/null
@@ -24,9 +26,12 @@ grep -Fq 'item: root.interactionReleased ? card : null' QuickCapture.qml
 grep -Fq 'WlrKeyboardFocus.OnDemand' QuickCapture.qml
 grep -Fq 'onBackingWindowVisibleChanged: if (backingWindowVisible && root.opened)' QuickCapture.qml
 grep -Fq 'id: releaseArea' QuickCapture.qml
-grep -Fq 'editorFocused: editor.activeFocus' QuickCapture.qml
 grep -Fq 'id: dragHandle' QuickCapture.qml
 grep -Fq 'id: positionFile' QuickCapture.qml
+grep -Fq 'os.O_NOFOLLOW' bin/append-capture
+grep -Fq 'os.fstat(fd)' bin/append-capture
+grep -Fq 'fcntl.flock(fd, fcntl.LOCK_EX)' bin/append-capture
+grep -Fq 'os.fsync(fd)' bin/append-capture
 if grep -Fq 'id: closeButton' QuickCapture.qml; then
   printf 'FAIL: close button should not be present\n' >&2
   exit 1

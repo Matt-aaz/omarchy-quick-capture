@@ -116,6 +116,28 @@ function initialCardPosition(panelWidth, panelHeight, cardWidth, cardHeight, pos
   return clampCardPosition(x, y, panelWidth, panelHeight, cardWidth, cardHeight)
 }
 
+function utf8ByteLength(value) {
+  var text = String(value || "")
+  var bytes = 0
+  for (var i = 0; i < text.length; i++) {
+    var code = text.charCodeAt(i)
+    if (code < 0x80) bytes += 1
+    else if (code < 0x800) bytes += 2
+    else if (code >= 0xd800 && code <= 0xdbff) {
+      var next = i + 1 < text.length ? text.charCodeAt(i + 1) : 0
+      if (next >= 0xdc00 && next <= 0xdfff) {
+        bytes += 4
+        i += 1
+      } else {
+        bytes += 3
+      }
+    } else {
+      bytes += 3
+    }
+  }
+  return bytes
+}
+
 function isEmptyCapture(content) {
   return String(content || "").trim().length === 0
 }

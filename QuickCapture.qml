@@ -17,6 +17,9 @@ Item {
   readonly property string pluginDir: manifest && manifest.__sourceDir ? String(manifest.__sourceDir) : ""
   readonly property string configPath: home + "/.config/omarchy/quick-capture.json"
   readonly property string positionPath: home + "/.local/state/omarchy/quick-capture-position.json"
+  readonly property int maxNoteBytes: 256 * 1024
+  readonly property int maxConfigBytes: 64 * 1024
+  readonly property string noteSizeError: "Note is too large (256 KiB maximum)."
 
   property bool opened: false
   property bool saving: false
@@ -35,6 +38,8 @@ Item {
   property real pointerSampleY: 0
   property string lastCloseReason: ""
   property bool dismissRequested: false
+  property string acceptedEditorText: ""
+  property bool restoringEditorText: false
 
   readonly property color panelBackground: Color.menu.background
   readonly property color panelText: Color.menu.text
@@ -84,10 +89,32 @@ Item {
     return Math.max(minimum, Math.min(maximum, Math.round(value)))
   }
 
+  function acceptEditorText(text) {
+    if (restoringEditorText) return
+    var candidate = String(text || "")
+    if (Logic.utf8ByteLength(candidate) <= maxNoteBytes) {
+      acceptedEditorText = candidate
+      if (errorMessage === noteSizeError) errorMessage = ""
+      return
+    }
+
+    restoringEditorText = true
+    editor.text = acceptedEditorText
+    restoringEditorText = false
+    errorMessage = noteSizeError
+    editor.forceActiveFocus()
+  }
+
   function loadConfig(raw) {
     var next = defaultConfig()
+    var rawText = String(raw || "")
+    if (Logic.utf8ByteLength(rawText) > maxConfigBytes) {
+      config = next
+      errorMessage = "Configuration is too large (64 KiB maximum). Fix " + configPath + " and retry."
+      return
+    }
     try {
-      var parsed = JSON.parse(String(raw || ""))
+      var parsed = JSON.parse(rawText)
       if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
         for (var key in parsed) next[key] = parsed[key]
       }
@@ -227,6 +254,11 @@ Item {
       editor.forceActiveFocus()
       return
     }
+    if (Logic.utf8ByteLength(markdown) > maxNoteBytes) {
+      errorMessage = noteSizeError
+      editor.forceActiveFocus()
+      return
+    }
 
     errorMessage = ""
     pendingMarkdown = markdown
@@ -236,41 +268,14 @@ Item {
     saveProc.running = true
   }
 
-  // Test/debug hooks reachable through:
-  // omarchy-shell shell call <id> status ''
+  // Minimal operational state for shell health checks. Never add draft,
+  // destination, source-context, error, or geometry data here.
   function status(_arg) {
     return JSON.stringify({
       opened: opened,
       saving: saving,
-      text: editor.text,
-      error: errorMessage,
-      captureFile: Logic.expandHome(config.capture_file, home),
-      sourceApp: sourceApp,
-      sourceWindowTitle: sourceWindowTitle,
-      screen: activeScreen ? String(activeScreen.name || "") : "",
-      lastCloseReason: lastCloseReason,
-      panelVisible: panel.visible,
-      editorFocused: editor.activeFocus,
-      interactionReleased: interactionReleased,
-      backingWindowVisible: panel.backingWindowVisible,
-      cardX: cardX,
-      cardY: cardY,
-      cardWidth: cardWidth,
-      cardHeight: cardHeight,
-      panelWidth: panel.width,
-      panelHeight: panel.height
+      panelVisible: panel.visible
     })
-  }
-
-  function setTextForTest(text) {
-    editor.text = String(text || "")
-    editor.forceActiveFocus()
-    return "ok"
-  }
-
-  function saveForTest(_arg) {
-    save()
-    return "ok"
   }
 
   FileView {
@@ -488,6 +493,7 @@ Item {
 
                     padding: Style.space(4)
                     enabled: !root.saving
+                    onTextChanged: root.acceptEditorText(text)
 
                     Keys.onPressed: function(event) {
                         if (event.key === Qt.Key_Escape) {

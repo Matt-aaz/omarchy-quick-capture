@@ -4,6 +4,16 @@ All notable changes to Quick Capture will be documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project uses [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Security
+
+- Removed production IPC methods that could replace and save the current draft.
+- Reduced IPC status output to three boolean operational fields, excluding note text, paths, source-window metadata, errors, and geometry.
+- Added 256 KiB rendered-note and 64 KiB configuration limits, with an independent 256 KiB limit in the append helper.
+- Changed capture writes to atomically open the destination with no-follow semantics, require a regular file through `fstat`, and lock, append, and `fsync` the same verified descriptor.
+- Added regression coverage for IPC privacy, size boundaries, symlinks and replacement races, non-regular files, normal append, new-file creation, and concurrent writers.
+
 ## [0.1.0] - 2026-08-24
 
 ### Added

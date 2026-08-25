@@ -48,6 +48,12 @@ assert.equal(noOptionalLines, "Remember to revisit this tomorrow.");
 assert.equal(context.isEmptyCapture("  \n\t"), true);
 assert.equal(context.isEmptyCapture(" A thought. "), false);
 
+assert.equal(context.utf8ByteLength("plain ASCII"), 11);
+assert.equal(context.utf8ByteLength("café ✓"), 9);
+assert.equal(context.utf8ByteLength("😀"), 4);
+assert.equal(context.utf8ByteLength("a".repeat(256 * 1024)), 256 * 1024);
+assert.equal(context.utf8ByteLength("a".repeat(256 * 1024) + "b"), 256 * 1024 + 1);
+
 assert.equal(
   JSON.stringify(context.initialCardPosition(2400, 1350, 700, 320, "center", 5)),
   JSON.stringify({ x: 850, y: 515 })

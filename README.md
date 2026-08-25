@@ -109,7 +109,7 @@ The minimal template supports:
 {{source}}
 ```
 
-Configuration changes are watched and apply without a shell restart.
+Configuration changes are watched and apply without a shell restart. The configuration file is limited to 64 KiB; a larger file is rejected before JSON parsing and the built-in defaults remain active until it is fixed.
 
 ## Usage
 
@@ -120,6 +120,8 @@ Configuration changes are watched and apply without a shell restart.
 The subtle grip at the top marks the draggable area. Move the card anywhere within the current monitor; its last position is restored the next time it opens. The card remains visible above other windows. Click an underlying application to select and copy text, then click the editor and paste; the unfinished capture stays intact throughout.
 
 A successful write clears the editor and closes the panel. `Esc` closes without saving. A failed write leaves the panel open with every character intact so the destination can be fixed and the save retried.
+
+Rendered notes are limited to 256 KiB of UTF-8 data. The editor blocks input beyond that boundary, and the append helper enforces the same limit independently. Text already in the editor is preserved when a note is rejected.
 
 ## Markdown output
 
@@ -139,6 +141,17 @@ The timestamp is generated at save time. New captures are separated by one blank
 > Quick Capture stores notes locally in the Markdown file you configure. It does not send note content anywhere.
 
 There is no telemetry, analytics, remote logging, cloud API, or automatic upload.
+
+Shell IPC exposes only whether the panel is open, saving, or visible. It does not expose or accept draft text, the destination path, source application/window metadata, errors, or panel geometry.
+
+The append helper accepts only regular destination files. It atomically opens the final path without following symbolic links, verifies and locks the opened file descriptor, then appends and flushes through that same descriptor. Symlinks, directories, FIFOs, sockets, devices, and other non-regular destinations are rejected.
+
+Security assumptions that remain:
+
+- Parent directory components are controlled by the user. This permits normal setups where a notes directory itself is symlinked; hostile parent-directory traversal would require descriptor-relative resolution of every component.
+- `flock` is advisory and serializes cooperating writers. A process allowed to rename entries in the parent can make the opened file unreachable under its original name, but cannot redirect the descriptor-only append through a replacement symlink.
+- Existing hard links are regular files and cannot be distinguished from their other names by this check.
+- `fsync` covers the opened file, matching the prior persistence guarantee. New-file creation does not separately `fsync` the parent directory entry.
 
 ## Troubleshooting
 
@@ -173,7 +186,7 @@ omarchy restart shell
 
 ## Development
 
-Runtime dependencies are limited to Omarchy, Quickshell, Bash, coreutils (`cat`, `sync`, `truncate`), and util-linux (`flock`). `notify-send` is used only when `notify_on_save` is enabled. No daemon is installed.
+Runtime dependencies are limited to Omarchy, Quickshell, and Python 3 from the standard Omarchy/Arch environment. `notify-send` is used only when `notify_on_save` is enabled. No third-party Python package or daemon is installed.
 
 The test suite additionally uses Node.js to execute the pure QML JavaScript logic; Node.js is not a runtime dependency.
 

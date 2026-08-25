@@ -1,93 +1,169 @@
-#!/bin/bash
-set -euo pipefail
+#!/usr/bin/python3
+"""Append one bounded capture through one verified file descriptor."""
 
-umask 077
+import errno
+import fcntl
+import os
+import stat
+import sys
 
-capture_file=${1:-}
-if [[ -z $capture_file ]]; then
-  printf 'Capture path is invalid.\n' >&2
-  exit 2
-fi
+MAX_NOTE_BYTES = 256 * 1024
 
-case $capture_file in
-  /*) ;;
-  *)
-    printf 'Capture path is invalid: use an absolute path.\n' >&2
-    exit 2
-    ;;
-esac
 
-if [[ -d $capture_file ]]; then
-  printf 'Could not save note: destination is not a regular file.\n' >&2
-  exit 3
-fi
-if [[ -e $capture_file && ! -f $capture_file ]]; then
-  printf 'Could not save note: destination is not a regular file.\n' >&2
-  exit 3
-fi
+class CaptureError(Exception):
+    def __init__(self, message: str, exit_code: int) -> None:
+        super().__init__(message)
+        self.message = message
+        self.exit_code = exit_code
 
-parent=${capture_file%/*}
-if ! mkdir -p -- "$parent" 2>/dev/null; then
-  printf 'Could not create the capture directory.\n' >&2
-  exit 4
-fi
 
-payload=$(mktemp --tmpdir="$parent" .quick-capture-payload.XXXXXX) || {
-  printf 'Could not prepare the note for saving.\n' >&2
-  exit 5
-}
-cleanup() { rm -f -- "$payload"; }
-trap cleanup EXIT HUP INT TERM
+def read_payload() -> bytes:
+    try:
+        payload = sys.stdin.buffer.read(MAX_NOTE_BYTES + 1)
+    except OSError as exc:
+        raise CaptureError("Could not read the note content.", 6) from exc
 
-if ! cat >"$payload"; then
-  printf 'Could not read the note content.\n' >&2
-  exit 6
-fi
+    if len(payload) > MAX_NOTE_BYTES:
+        raise CaptureError(
+            "Could not save note: note exceeds the 256 KiB limit.", 6
+        )
 
-# Normalize only trailing line endings. Interior whitespace and Unicode remain
-# byte-for-byte intact, while every stored entry ends with exactly one newline.
-while [[ -s $payload ]]; do
-  last_byte=$(tail -c 1 -- "$payload" | od -An -tx1 | tr -d '[:space:]')
-  [[ $last_byte == 0a ]] || break
-  truncate -s -1 -- "$payload"
-done
+    # Preserve all interior bytes and remove only trailing LF bytes. Every
+    # successful stored entry receives exactly one trailing LF below.
+    payload = payload.rstrip(b"\n")
+    if not payload:
+        raise CaptureError("Could not save note: capture is empty.", 7)
+    return payload
 
-if [[ ! -s $payload ]]; then
-  printf 'Could not save note: capture is empty.\n' >&2
-  exit 7
-fi
 
-if ! { exec 3>>"$capture_file"; } 2>/dev/null; then
-  printf 'Could not create or open the capture file.\n' >&2
-  exit 8
-fi
-if ! flock -x 3; then
-  printf 'Could not lock the capture file.\n' >&2
-  exit 9
-fi
+def validate_path(value: str) -> str:
+    if not value:
+        raise CaptureError("Capture path is invalid.", 2)
+    if not os.path.isabs(value):
+        raise CaptureError("Capture path is invalid: use an absolute path.", 2)
+    if "\0" in value:
+        raise CaptureError("Capture path is invalid.", 2)
+    return value
 
-if [[ -s $capture_file ]]; then
-  last_byte=$(tail -c 1 -- "$capture_file" | od -An -tx1 | tr -d '[:space:]')
-  if [[ $last_byte != 0a ]]; then
-    printf '\n' >&3 || {
-      printf 'Could not save note: disk write failed.\n' >&2
-      exit 10
-    }
-  fi
-  printf '\n' >&3 || {
-    printf 'Could not save note: disk write failed.\n' >&2
-    exit 10
-  }
-fi
 
-if ! cat -- "$payload" >&3 || ! printf '\n' >&3; then
-  printf 'Could not save note: disk write failed.\n' >&2
-  exit 10
-fi
+def create_parent(path: str) -> None:
+    parent = os.path.dirname(path) or "/"
+    try:
+        os.makedirs(parent, mode=0o700, exist_ok=True)
+    except OSError as exc:
+        raise CaptureError("Could not create the capture directory.", 4) from exc
 
-# Confirm the kernel has flushed this file before reporting success. This keeps
-# the panel open if the filesystem reports a late write error.
-if ! sync -f -- "$capture_file"; then
-  printf 'Could not save note: disk flush failed.\n' >&2
-  exit 11
-fi
+
+def open_destination(path: str) -> int:
+    flags = (
+        os.O_RDWR
+        | os.O_APPEND
+        | os.O_CREAT
+        | os.O_NONBLOCK
+        | os.O_CLOEXEC
+        | os.O_NOFOLLOW
+    )
+    try:
+        return os.open(path, flags, 0o600)
+    except OSError as exc:
+        if exc.errno == errno.ELOOP:
+            raise CaptureError(
+                "Could not save note: destination is a symbolic link.", 3
+            ) from exc
+        if exc.errno in {
+            errno.EISDIR,
+            errno.ENXIO,
+            errno.ENODEV,
+            getattr(errno, "ENOTSUP", errno.EINVAL),
+            errno.EOPNOTSUPP,
+        }:
+            raise CaptureError(
+                "Could not save note: destination is not a regular file.", 3
+            ) from exc
+        raise CaptureError("Could not create or open the capture file.", 8) from exc
+
+
+def verify_regular(fd: int) -> os.stat_result:
+    try:
+        info = os.fstat(fd)
+    except OSError as exc:
+        raise CaptureError("Could not inspect the capture file.", 8) from exc
+    if not stat.S_ISREG(info.st_mode):
+        raise CaptureError(
+            "Could not save note: destination is not a regular file.", 3
+        )
+    return info
+
+
+def write_all(fd: int, data: bytes) -> None:
+    view = memoryview(data)
+    while view:
+        try:
+            written = os.write(fd, view)
+        except OSError as exc:
+            raise CaptureError("Could not save note: disk write failed.", 10) from exc
+        if written <= 0:
+            raise CaptureError("Could not save note: disk write failed.", 10)
+        view = view[written:]
+
+
+def append_capture(path: str, payload: bytes) -> None:
+    fd = open_destination(path)
+    locked = False
+    try:
+        verify_regular(fd)
+
+        # O_NONBLOCK prevents a malicious FIFO from hanging open(). It is not
+        # needed after fstat has proved this descriptor is a regular file.
+        current_flags = fcntl.fcntl(fd, fcntl.F_GETFL)
+        fcntl.fcntl(fd, fcntl.F_SETFL, current_flags & ~os.O_NONBLOCK)
+
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX)
+            locked = True
+        except OSError as exc:
+            raise CaptureError("Could not lock the capture file.", 9) from exc
+
+        info = verify_regular(fd)
+        separator = b""
+        if info.st_size:
+            try:
+                last_byte = os.pread(fd, 1, info.st_size - 1)
+            except OSError as exc:
+                raise CaptureError("Could not inspect the capture file.", 8) from exc
+            separator = b"\n" if last_byte == b"\n" else b"\n\n"
+
+        write_all(fd, separator + payload + b"\n")
+        try:
+            os.fsync(fd)
+        except OSError as exc:
+            raise CaptureError("Could not save note: disk flush failed.", 11) from exc
+    finally:
+        if locked:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_UN)
+            except OSError:
+                pass
+        os.close(fd)
+
+
+def main(argv: list[str]) -> int:
+    os.umask(0o077)
+    try:
+        path = validate_path(argv[1] if len(argv) > 1 else "")
+        if len(argv) != 2:
+            raise CaptureError("Capture path is invalid.", 2)
+        payload = read_payload()
+        create_parent(path)
+        append_capture(path, payload)
+    except CaptureError as exc:
+        print(exc.message, file=sys.stderr)
+        return exc.exit_code
+    except (OSError, ValueError):
+        print("Could not save note due to an unexpected file error.", file=sys.stderr)
+        return 12
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv))
