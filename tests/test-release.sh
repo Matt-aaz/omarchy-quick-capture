@@ -10,7 +10,7 @@ node tests/test-qml-security.mjs
 python3 -c 'import ast, pathlib; ast.parse(pathlib.Path("bin/append-capture").read_text())'
 omarchy plugin validate .
 
-jq -e '.schemaVersion == 1 and .id == "io.github.matt-aaz.quick-capture" and .version == "0.1.0" and .author == "matt-aaz" and .license == "MIT" and (.kinds | index("panel")) and .entryPoints.panel == "QuickCapture.qml"' manifest.json >/dev/null
+jq -e '.schemaVersion == 1 and .id == "io.github.matt-aaz.quick-capture" and .version == "0.1.1" and .author == "matt-aaz" and .license == "MIT" and (.kinds | index("panel")) and .entryPoints.panel == "QuickCapture.qml"' manifest.json >/dev/null
 jq -e '.capture_file == "~/Documents/Notes/Capture.md" and .default_tags == ["capture"] and .include_timestamp == true and .panel_width == 700 and .panel_height == 230' config.example.json >/dev/null
 
 # Reject common credential formats and private key material from release files.
