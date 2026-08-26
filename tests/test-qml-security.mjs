@@ -36,6 +36,11 @@ function functionBody(source, name) {
 assert.doesNotMatch(qml, /\bfunction\s+setTextForTest\s*\(/, "production QML exposes draft mutation over IPC");
 assert.doesNotMatch(qml, /\bfunction\s+saveForTest\s*\(/, "production QML exposes draft saving over IPC");
 
+assert.doesNotMatch(qml, /\bFileView\s*\{/, "replaceable files must not be materialized by QML");
+assert.match(qml, /bounded-file/);
+assert.match(qml, /\[pluginDir \+ "\/bin\/bounded-file", "read", String\(maxConfigBytes\), configPath\]/);
+assert.match(qml, /\[pluginDir \+ "\/bin\/bounded-file", "read", String\(maxPositionBytes\), positionPath\]/);
+
 const status = functionBody(qml, "status");
 const fields = [...status.matchAll(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*:/gm)].map(match => match[1]);
 assert.deepEqual(fields, ["opened", "saving", "panelVisible"], "status() must expose only the boolean operational allow-list");

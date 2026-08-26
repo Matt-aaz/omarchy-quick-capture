@@ -1,0 +1,100 @@
+#!/usr/bin/python3
+"""Bounded descriptor-pinned reads and atomic small-file writes."""
+
+import errno
+import os
+import stat
+import sys
+import tempfile
+
+
+def fail(message: str, code: int = 2) -> int:
+    print(message, file=sys.stderr)
+    return code
+
+
+def limit_from(value: str) -> int:
+    limit = int(value)
+    if limit < 1 or limit > 1024 * 1024:
+        raise ValueError
+    return limit
+
+
+def read_bounded(path: str, limit: int) -> int:
+    flags = os.O_RDONLY | os.O_NONBLOCK | os.O_CLOEXEC | os.O_NOFOLLOW
+    try:
+        fd = os.open(path, flags)
+    except FileNotFoundError:
+        return 0
+    except OSError as exc:
+        if exc.errno in {errno.ELOOP, errno.ENXIO, errno.ENODEV, errno.EISDIR}:
+            return fail("File is not a regular file.", 3)
+        return fail("File could not be read.", 4)
+
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            return fail("File is not a regular file.", 3)
+        chunks = []
+        remaining = limit + 1
+        while remaining:
+            chunk = os.read(fd, remaining)
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        data = b"".join(chunks)
+        if len(data) > limit:
+            return fail(f"File exceeds the {limit}-byte limit.", 5)
+        sys.stdout.buffer.write(data)
+        return 0
+    except OSError:
+        return fail("File could not be read.", 4)
+    finally:
+        os.close(fd)
+
+
+def replace_bounded(path: str, limit: int) -> int:
+    data = sys.stdin.buffer.read(limit + 1)
+    if len(data) > limit:
+        return fail(f"File exceeds the {limit}-byte limit.", 5)
+
+    parent = os.path.dirname(path) or "/"
+    try:
+        os.makedirs(parent, mode=0o700, exist_ok=True)
+        fd, temporary = tempfile.mkstemp(prefix=".quick-capture-", dir=parent)
+        try:
+            os.fchmod(fd, 0o600)
+            view = memoryview(data)
+            while view:
+                written = os.write(fd, view)
+                view = view[written:]
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+        os.replace(temporary, path)
+        return 0
+    except OSError:
+        if "temporary" in locals():
+            try:
+                os.unlink(temporary)
+            except OSError:
+                pass
+        return fail("File could not be written.", 6)
+
+
+def main(argv: list[str]) -> int:
+    os.umask(0o077)
+    if len(argv) != 4 or argv[1] not in {"read", "replace"}:
+        return fail("Usage: bounded-file read|replace LIMIT ABSOLUTE_PATH")
+    try:
+        limit = limit_from(argv[2])
+    except ValueError:
+        return fail("Invalid byte limit.")
+    path = argv[3]
+    if not os.path.isabs(path) or "\0" in path:
+        return fail("Invalid file path.")
+    return read_bounded(path, limit) if argv[1] == "read" else replace_bounded(path, limit)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv))

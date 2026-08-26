@@ -109,7 +109,7 @@ The minimal template supports:
 {{source}}
 ```
 
-Configuration changes are watched and apply without a shell restart. The configuration file is limited to 64 KiB; a larger file is rejected before JSON parsing and the built-in defaults remain active until it is fixed.
+Configuration is reloaded each time the panel opens. A descriptor-validated reader limits configuration to 64 KiB and saved position state to 4 KiB before either reaches Omarchy Shell.
 
 ## Usage
 

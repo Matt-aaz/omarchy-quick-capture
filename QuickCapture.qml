@@ -19,12 +19,14 @@ Item {
   readonly property string positionPath: home + "/.local/state/omarchy/quick-capture-position.json"
   readonly property int maxNoteBytes: 256 * 1024
   readonly property int maxConfigBytes: 64 * 1024
+  readonly property int maxPositionBytes: 4 * 1024
   readonly property string noteSizeError: "Note is too large (256 KiB maximum)."
 
   property bool opened: false
   property bool saving: false
   property string errorMessage: ""
   property string pendingMarkdown: ""
+  property string pendingPosition: ""
   property string sourceApp: ""
   property string sourceWindowTitle: ""
   property var activeScreen: null
@@ -177,19 +179,24 @@ Item {
 
   function saveCardPosition() {
     if (!activeScreen) return
-    positionFile.setText(JSON.stringify({
+    pendingPosition = JSON.stringify({
       screen: String(activeScreen.name || ""),
       x: cardX,
       y: cardY
-    }) + "\n")
+    }) + "\n"
+    positionWriteProc.command = [pluginDir + "/bin/bounded-file", "replace", String(maxPositionBytes), positionPath]
+    positionWriteProc.stdinEnabled = true
+    positionWriteProc.running = true
   }
 
   function open(payloadJson) {
     rememberSourceContext()
     activeScreen = screenForFocusedMonitor()
-    configFile.reload()
-    positionFile.reload()
     errorMessage = ""
+    configReadProc.command = [pluginDir + "/bin/bounded-file", "read", String(maxConfigBytes), configPath]
+    positionReadProc.command = [pluginDir + "/bin/bounded-file", "read", String(maxPositionBytes), positionPath]
+    configReadProc.running = true
+    positionReadProc.running = true
     interactionReleased = false
     pointerSampled = false
     opened = true
@@ -278,26 +285,42 @@ Item {
     })
   }
 
-  FileView {
-    id: configFile
-    path: root.configPath
-    watchChanges: true
-    printErrors: false
-    onLoaded: root.loadConfig(text())
-    onFileChanged: reload()
-    onLoadFailed: root.config = root.defaultConfig()
+  Process {
+    id: configReadProc
+    stdout: StdioCollector { id: configReadOut; waitForEnd: true }
+    stderr: StdioCollector { id: configReadError; waitForEnd: true }
+    onExited: function(exitCode) {
+      if (exitCode === 0 && configReadOut.text) root.loadConfig(configReadOut.text)
+      else if (exitCode === 0) {
+        root.config = root.defaultConfig()
+        root.errorMessage = ""
+      }
+      else {
+        root.config = root.defaultConfig()
+        var detail = String(configReadError.text || "")
+        root.errorMessage = detail.indexOf("exceeds") >= 0
+          ? "Configuration is too large (64 KiB maximum). Fix " + root.configPath + " and retry."
+          : "Configuration could not be read. Fix " + root.configPath + " and retry."
+      }
+    }
   }
 
-  FileView {
-    id: positionFile
-    path: root.positionPath
-    atomicWrites: true
-    printErrors: false
-    onLoaded: {
-      root.savedPositionRaw = text()
+  Process {
+    id: positionReadProc
+    stdout: StdioCollector { id: positionReadOut; waitForEnd: true }
+    onExited: function(exitCode) {
+      root.savedPositionRaw = exitCode === 0 ? positionReadOut.text : ""
       if (root.opened) positionTimer.restart()
     }
-    onLoadFailed: root.savedPositionRaw = ""
+  }
+
+  Process {
+    id: positionWriteProc
+    stdinEnabled: true
+    onStarted: {
+      write(root.pendingPosition)
+      stdinEnabled = false
+    }
   }
 
   Process {
