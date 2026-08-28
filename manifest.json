@@ -5,7 +5,7 @@
   "version": "0.1.2",
   "author": "matt-aaz",
   "license": "MIT",
-  "description": "A system-wide Markdown capture panel for Omarchy.",
+  "description": "A system-wide Markdown note capture panel for Omarchy.",
   "kinds": [
     "panel"
   ],
