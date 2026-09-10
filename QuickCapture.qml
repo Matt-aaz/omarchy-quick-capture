@@ -14,7 +14,12 @@ Item {
   property var shell: null
   property var manifest: null
   readonly property string home: Quickshell.env("HOME")
-  readonly property string pluginDir: manifest && manifest.__sourceDir ? String(manifest.__sourceDir) : ""
+  readonly property string pluginDir: {
+    if (manifest && manifest.__sourceDir) return String(manifest.__sourceDir)
+    // Third-party plugins get __sourceDir stripped from the public manifest
+    // (shell.qml publicPluginManifest); derive it from the user plugin dir.
+    return home + "/.config/omarchy/plugins/" + String(manifest && manifest.id || "")
+  }
   readonly property string configPath: home + "/.config/omarchy/quick-capture.json"
   readonly property string positionPath: home + "/.local/state/omarchy/quick-capture-position.json"
   readonly property int maxNoteBytes: 256 * 1024
@@ -272,6 +277,7 @@ Item {
     saveProc.command = [pluginDir + "/bin/append-capture", path]
     saveProc.stdinEnabled = true
     saving = true
+    saveWatchdog.restart()
     saveProc.running = true
   }
 
@@ -339,6 +345,7 @@ Item {
     onExited: function(exitCode) {
       var success = exitCode === 0
       root.saving = false
+      saveWatchdog.stop()
       if (!success) {
         var detail = String(saveStderr.text || "").trim()
         root.errorMessage = detail || "Could not save note. Check the destination and try again."
@@ -361,6 +368,18 @@ Item {
     id: positionTimer
     interval: 50
     onTriggered: if (root.opened) root.positionCard()
+  }
+
+  // Safety net: if the save helper never starts or exits (e.g. its binary is
+  // missing), stop reporting "Saving…" forever and let Esc/retry work again.
+  Timer {
+    id: saveWatchdog
+    interval: 20000
+    onTriggered: {
+      if (!root.saving) return
+      root.saving = false
+      root.errorMessage = "Save did not complete. Check the destination and try again."
+    }
   }
 
   PanelWindow {
