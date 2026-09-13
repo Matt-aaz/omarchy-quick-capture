@@ -13,8 +13,28 @@ Item {
 
   property var shell: null
   property var manifest: null
+  // Injected by the host when declared; used to resolve the plugin's own
+  // directory via entryPointUrl() (see pluginDir below).
+  property var pluginRegistry: null
   readonly property string home: Quickshell.env("HOME")
-  readonly property string pluginDir: manifest && manifest.__sourceDir ? String(manifest.__sourceDir) : ""
+  // The host strips `__sourceDir` from third-party manifests, so a panel cannot
+  // locate its own bundled helpers through `manifest`. Resolve the plugin
+  // directory from the sanctioned public API instead: entryPointUrl() returns
+  // the file:// URL of the panel entry point, whose parent directory is the
+  // plugin root. Percent-decoding is required because the URL is
+  // encodeURIComponent-encoded per segment.
+  readonly property string pluginDir: {
+    try {
+      var url = pluginRegistry ? String(pluginRegistry.entryPointUrl(manifest, "panel") || "") : ""
+      if (url.indexOf("file://") !== 0) return ""
+      var path = url.slice("file://".length)
+      var slash = path.lastIndexOf("/")
+      path = slash >= 0 ? path.slice(0, slash) : path
+      return decodeURIComponent(path)
+    } catch (e) {
+      return ""
+    }
+  }
   readonly property string configPath: home + "/.config/omarchy/quick-capture.json"
   readonly property string positionPath: home + "/.local/state/omarchy/quick-capture-position.json"
   readonly property int maxNoteBytes: 256 * 1024

@@ -6,6 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Fixed
+
+- Resolved plugin helpers (`bin/append-capture`, `bin/bounded-file`) relative to the plugin directory obtained from the public `pluginRegistry.entryPointUrl()` API instead of `manifest.__sourceDir`, which the Omarchy host removes from third-party panel manifests. This had left the save process never starting after an Omarchy upgrade that stripped `__sourceDir`, so the panel stayed stuck on "Saving…".
+
 ## [0.1.2] - 2026-08-27
 
 ### Security

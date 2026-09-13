@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "io.github.matt-aaz.quick-capture",
   "name": "Quick Capture",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "author": "matt-aaz",
   "license": "MIT",
   "description": "A system-wide Markdown note capture panel for Omarchy.",
